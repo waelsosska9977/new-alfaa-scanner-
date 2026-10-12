@@ -1,0 +1,6 @@
+{
+  "name": "Strict Alpha Scanner - Quantitative Crypto Engine",
+  "description": "Production-grade quantitative crypto scanner for Binance USDT Futures & Spot pairs with strict 5-factor confluence validation, institutional volume scoring, dynamic ATR risk boundaries, and vectorized backtest generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
