@@ -11,7 +11,8 @@ import {
   Target, 
   ShieldAlert, 
   Clock, 
-  Layers
+  Layers,
+  Zap
 } from 'lucide-react';
 
 interface Props {
@@ -19,9 +20,10 @@ interface Props {
   isArabic: boolean;
   onOpenBacktest: (setup: ConfirmedSetup) => void;
   onOpenScript: (setup: ConfirmedSetup) => void;
+  onEnterPaperTrade?: (setup: ConfirmedSetup) => void;
 }
 
-export const SetupCard: React.FC<Props> = ({ setup, isArabic, onOpenBacktest, onOpenScript }) => {
+export const SetupCard: React.FC<Props> = ({ setup, isArabic, onOpenBacktest, onOpenScript, onEnterPaperTrade }) => {
   const [showMatrixDetails, setShowMatrixDetails] = useState(false);
   const isLong = setup.direction === 'LONG';
   const isImmediate = setup.entryStatus === 'IMMEDIATE';
@@ -322,8 +324,18 @@ export const SetupCard: React.FC<Props> = ({ setup, isArabic, onOpenBacktest, on
           )}
         </div>
 
+        {/* 20x Futures Paper Trading Entry Button */}
+        <button
+          type="button"
+          onClick={() => onEnterPaperTrade && onEnterPaperTrade(setup)}
+          className="w-full py-2.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/30 border border-emerald-400 active:scale-[0.99] cursor-pointer"
+        >
+          <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+          <span>{isArabic ? '⚡ دخول صفقة فيوتشر (20x) بقيمة 10$' : '⚡ Enter 20x Futures Trade ($10)'}</span>
+        </button>
+
         {/* Action Buttons: Backtest & Export Script & Binance Link */}
-        <div className="grid grid-cols-3 gap-2 pt-1">
+        <div className="grid grid-cols-3 gap-2 pt-0.5">
           <button
             type="button"
             onClick={() => onOpenBacktest(setup)}

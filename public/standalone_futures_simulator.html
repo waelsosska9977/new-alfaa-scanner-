@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strict Alpha Scanner · 20x Futures Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f4f4f5;
+      font-family: 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .font-mono-num {
+      font-family: 'Fira Code', monospace;
+      font-feature-settings: "tnum" 1, "zero" 1;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #090d16; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col p-3 md:p-6 space-y-5 antialiased selection:bg-emerald-500/30">
+
+  <!-- Top Navigation & Market Header -->
+  <header class="bg-[#0c121e] border border-zinc-800 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center font-black text-black text-base shadow-lg shadow-emerald-500/20">
+        20x
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base font-bold text-white tracking-wide">
+            الماسح الكمي الصارم · محاكي عقود الفيوتشر (20x Futures Engine)
+          </h1>
+          <span class="text-[10px] uppercase font-mono-num bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+            LIVE BINANCE API
+          </span>
+        </div>
+        <p class="text-xs text-zinc-400 mt-0.5">
+          معمارية رقمية صارمة بدون شارتات · هامش ثابت 10.00$ · حجم عقد 200.00$ · رافعة 20x معزولة
+        </p>
+      </div>
+    </div>
+
+    <!-- Live Account Balance & Status -->
+    <div class="flex items-center gap-4 bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 text-xs font-mono-num">
+      <div>
+        <span class="text-zinc-500 text-[10px] block">رصيد المحفظة التجريبية</span>
+        <span id="headerBalance" class="text-base font-bold text-emerald-400">$100.00</span>
+      </div>
+      <div class="border-s border-zinc-800 ps-3">
+        <span class="text-zinc-500 text-[10px] block">تحديث الأسعار</span>
+        <span class="text-xs text-zinc-300 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>15m Candles</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Active 20x Futures Position Panel (Real-Time 3s Polling) -->
+  <div id="activePositionContainer">
+    <!-- Rendered via JavaScript -->
+  </div>
+
+  <!-- Market Filter Controls -->
+  <div class="flex flex-wrap items-center justify-between gap-3 bg-[#0c121e] p-3 rounded-xl border border-zinc-800 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="text-zinc-400 font-semibold">فلترة الاتجاه:</span>
+      <button onclick="setFilter('ALL')" id="btnFilterAll" class="px-3 py-1 rounded-md font-semibold bg-zinc-800 text-white transition-colors">الكل</button>
+      <button onclick="setFilter('LONG')" id="btnFilterLong" class="px-3 py-1 rounded-md font-semibold text-emerald-400 hover:text-white transition-colors">LONG 🚀</button>
+      <button onclick="setFilter('SHORT')" id="btnFilterShort" class="px-3 py-1 rounded-md font-semibold text-rose-400 hover:text-white transition-colors">SHORT 🔻</button>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <span class="text-zinc-500 font-mono-num text-[11px]" id="scanTimerText">جاري التحديث...</span>
+      <button onclick="scanUniverse()" class="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg font-semibold transition-colors">
+        🔄 فحص فوري
+      </button>
+    </div>
+  </div>
+
+  <!-- Confirmed Setups Numerical Cards Grid -->
+  <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <!-- Populated by JavaScript -->
+  </div>
+
+  <!-- Minimal 20x Futures Trade History Table -->
+  <div id="historyTableContainer" class="bg-[#0c121e] border border-zinc-800 rounded-xl overflow-hidden text-xs">
+    <!-- Populated by JavaScript -->
+  </div>
+
+  <!-- Core JavaScript Engine -->
+  <script>
+    // Configuration & State
+    const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'SUIUSDT', 'BNBUSDT', 'DOGEUSDT', 'XRPUSDT', 'AVAXUSDT', 'NEARUSDT', 'ADAUSDT', 'PEPEUSDT', 'TIAUSDT'];
+    let currentFilter = 'ALL';
+    let scannedSetups = [];
+    
+    // Paper Trading State
+    let demoBalance = parseFloat(localStorage.getItem('paper_balance') || '100.00');
+    let activePosition = JSON.parse(localStorage.getItem('paper_active_position') || 'null');
+    let tradeHistory = JSON.parse(localStorage.getItem('paper_history') || '[]');
+    let pollInterval = null;
+
+    // EMA & Indicators Helpers
+    function calculateEMA(data, period) {
+      const k = 2 / (period + 1);
+      let ema = [data[0]];
+      for (let i = 1; i < data.length; i++) {
+        ema.push(data[i] * k + ema[i - 1] * (1 - k));
+      }
+      return ema;
+    }
+
+    function calculateATR(highs, lows, closes, period = 14) {
+      const trs = [highs[0] - lows[0]];
+      for (let i = 1; i < closes.length; i++) {
+        trs.push(Math.max(
+          highs[i] - lows[i],
+          Math.abs(highs[i] - closes[i - 1]),
+          Math.abs(lows[i] - closes[i - 1])
+        ));
+      }
+      return calculateEMA(trs, period);
+    }
+
+    // Fetch and evaluate single symbol on 15m
+    async function evaluateSymbol(symbol) {
+      try {
+        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=210`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const raw = await res.json();
+        if (!Array.isArray(raw) || raw.length < 205) return null;
+
+        const closes = raw.map(k => parseFloat(k[4]));
+        const highs = raw.map(k => parseFloat(k[2]));
+        const lows = raw.map(k => parseFloat(k[3]));
+        const volumes = raw.map(k => parseFloat(k[5]));
+
+        const ema9Arr = calculateEMA(closes, 9);
+        const ema21Arr = calculateEMA(closes, 21);
+        const ema200Arr = calculateEMA(closes, 200);
+        const atrArr = calculateATR(highs, lows, closes, 14);
+
+        const last = closes.length - 1;
+        const livePrice = closes[last];
+        const ema9 = ema9Arr[last];
+        const ema21 = ema21Arr[last];
+        const ema200 = ema200Arr[last];
+        const atr = atrArr[last];
+
+        // Vol SMA20 on closed candles
+        const volSlice = volumes.slice(-21, -1);
+        const volSma20 = volSlice.reduce((a, b) => a + b, 0) / 20;
+        const lastClosedVol = volumes[last - 1];
+        const volRatio = Number((lastClosedVol / (volSma20 || 1)).toFixed(2));
+
+        const isLong = (livePrice > ema200) && (ema9 > ema21);
+        const isShort = (livePrice < ema200) && (ema9 < ema21);
+
+        if (!isLong && !isShort) return null;
+
+        const direction = isLong ? 'LONG' : 'SHORT';
+        const tp = direction === 'LONG' ? livePrice + (3.0 * atr) : livePrice - (3.0 * atr);
+        const sl = direction === 'LONG' ? livePrice - (1.5 * atr) : livePrice + (1.5 * atr);
+
+        return {
+          symbol,
+          direction,
+          livePrice,
+          ema9,
+          ema21,
+          ema200,
+          volRatio,
+          isInstVol: volRatio >= 1.8,
+          tp: Math.max(0.000001, tp),
+          sl: Math.max(0.000001, sl),
+          tpPct: Number(((Math.abs(tp - livePrice) / livePrice) * 100).toFixed(2)),
+          slPct: Number(((Math.abs(livePrice - sl) / livePrice) * 100).toFixed(2))
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Scan all symbols
+    async function scanUniverse() {
+      document.getElementById('scanTimerText').innerText = 'جاري مسح أزواج بينانس...';
+      const results = await Promise.all(SYMBOLS.map(sym => evaluateSymbol(sym)));
+      scannedSetups = results.filter(s => s !== null);
+      document.getElementById('scanTimerText').innerText = `تم فحص ${SYMBOLS.length} عملة · المتاح: ${scannedSetups.length}`;
+      renderCards();
+    }
+
+    // Set filter
+    function setFilter(type) {
+      currentFilter = type;
+      ['btnFilterAll', 'btnFilterLong', 'btnFilterShort'].forEach(id => {
+        document.getElementById(id).className = 'px-3 py-1 rounded-md font-semibold text-zinc-400 hover:text-white transition-colors';
+      });
+      if (type === 'ALL') document.getElementById('btnFilterAll').className = 'px-3 py-1 rounded-md font-semibold bg-zinc-800 text-white';
+      if (type === 'LONG') document.getElementById('btnFilterLong').className = 'px-3 py-1 rounded-md font-semibold bg-emerald-600 text-white';
+      if (type === 'SHORT') document.getElementById('btnFilterShort').className = 'px-3 py-1 rounded-md font-semibold bg-rose-600 text-white';
+      renderCards();
+    }
+
+    // Render Cards Grid
+    function renderCards() {
+      const container = document.getElementById('cardsGrid');
+      const filtered = scannedSetups.filter(s => currentFilter === 'ALL' || s.direction === currentFilter);
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full bg-[#0c121e] border border-zinc-800 p-8 rounded-xl text-center text-zinc-400 text-xs">
+            🛡️ لا توجد عملات تطابق الاتجاه والفوليوم حالياً. يتم استبعاد الصفقات الضعيفة لحماية الرصيد.
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(s => {
+        const isLong = s.direction === 'LONG';
+        return `
+          <div class="bg-[#0c121e] border ${isLong ? 'border-emerald-500/30' : 'border-rose-500/30'} rounded-xl p-4 space-y-3 font-mono-num shadow-lg">
+            <div class="flex items-center justify-between pb-2 border-b border-zinc-800">
+              <span class="text-base font-bold text-white tracking-wide">${s.symbol}</span>
+              <span class="px-2.5 py-0.5 rounded text-xs font-black ${isLong ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}">
+                ${isLong ? '🚀 LONG 20x' : '🔻 SHORT 20x'}
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div class="bg-zinc-950 p-2 rounded border border-zinc-800/80">
+                <span class="text-zinc-500 block text-[10px]">السعر الحالي</span>
+                <span class="font-bold text-white">$${s.livePrice.toFixed(4)}</span>
+              </div>
+              <div class="bg-zinc-950 p-2 rounded border border-zinc-800/80">
+                <span class="text-zinc-500 block text-[10px]">فوليوم vs SMA20</span>
+                <span class="font-bold ${s.isInstVol ? 'text-amber-300' : 'text-zinc-400'}">${s.volRatio}x ${s.isInstVol ? '⚡ مؤسسي' : ''}</span>
+              </div>
+              <div class="bg-emerald-950/20 p-2 rounded border border-emerald-500/20">
+                <span class="text-emerald-400 block text-[10px]">الهدف (TP)</span>
+                <span class="font-bold text-emerald-300">+$${s.tp.toFixed(4)} (+${s.tpPct}%)</span>
+              </div>
+              <div class="bg-rose-950/20 p-2 rounded border border-rose-500/20">
+                <span class="text-rose-400 block text-[10px]">الوقف (SL)</span>
+                <span class="font-bold text-rose-300">-$${s.sl.toFixed(4)} (-${s.slPct}%)</span>
+              </div>
+            </div>
+
+            <!-- Green Execution Button -->
+            <button onclick="enterTrade('${s.symbol}', '${s.direction}', ${s.livePrice}, ${s.tp}, ${s.sl})" class="w-full py-2.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/30 border border-emerald-400 cursor-pointer">
+              <span>⚡ دخول صفقة فيوتشر (20x) بقيمة 10$</span>
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 20x Paper Trading Logic
+    function enterTrade(symbol, direction, entryPrice, tp, sl) {
+      if (activePosition) {
+        closeTrade('MANUAL_CLOSE', '⚪ إغلاق يدوي لفتح صفقة جديدة');
+      }
+
+      const margin = 10.0;
+      const leverage = 20;
+      const notionalSize = 200.0;
+      const isLong = direction === 'LONG';
+      const liqPrice = isLong ? entryPrice * 0.95 : entryPrice * 1.05;
+
+      activePosition = {
+        symbol,
+        direction,
+        entryPrice,
+        currentPrice: entryPrice,
+        margin,
+        leverage,
+        notionalSize,
+        tp,
+        sl,
+        liqPrice,
+        pnlPercent: 0,
+        pnlDollar: 0,
+        openedAt: Date.now()
+      };
+
+      demoBalance = Math.max(0, Number((demoBalance - margin).toFixed(2)));
+      saveState();
+      renderActivePosition();
+      startPolling();
+    }
+
+    function closeTrade(outcome, outcomeTextAr) {
+      if (!activePosition) return;
+
+      const pnlDollar = outcome === 'LIQUIDATED' ? -activePosition.margin : activePosition.pnlDollar;
+      const pnlPercent = outcome === 'LIQUIDATED' ? -100 : activePosition.pnlPercent;
+
+      const closed = {
+        id: Date.now(),
+        symbol: activePosition.symbol,
+        direction: activePosition.direction,
+        entryPrice: activePosition.entryPrice,
+        exitPrice: activePosition.currentPrice,
+        margin: activePosition.margin,
+        pnlDollar: Number(pnlDollar.toFixed(2)),
+        pnlPercent: Number(pnlPercent.toFixed(2)),
+        outcomeTextAr,
+        openedAt: activePosition.openedAt,
+        closedAt: Date.now()
+      };
+
+      tradeHistory.unshift(closed);
+      demoBalance = Number((demoBalance + activePosition.margin + pnlDollar).toFixed(2));
+      activePosition = null;
+      stopPolling();
+      saveState();
+      renderActivePosition();
+      renderHistory();
+    }
+
+    // 3-Second Live Polling Loop
+    function startPolling() {
+      stopPolling();
+      pollInterval = setInterval(async () => {
+        if (!activePosition) return;
+        try {
+          const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${activePosition.symbol}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const livePrice = parseFloat(data.price);
+          if (!livePrice) return;
+
+          activePosition.currentPrice = livePrice;
+          const isLong = activePosition.direction === 'LONG';
+          const diff = isLong ? (livePrice - activePosition.entryPrice) : (activePosition.entryPrice - livePrice);
+          const pnlPct = (diff / activePosition.entryPrice) * 100 * activePosition.leverage;
+          const pnlDol = activePosition.margin * (pnlPct / 100);
+
+          activePosition.pnlPercent = Number(pnlPct.toFixed(2));
+          activePosition.pnlDollar = Number(pnlDol.toFixed(2));
+
+          // Automated Exit Triggers
+          const isTpHit = isLong ? (livePrice >= activePosition.tp) : (livePrice <= activePosition.tp);
+          const isSlHit = isLong ? (livePrice <= activePosition.sl) : (livePrice >= activePosition.sl);
+          const isLiqHit = isLong ? (livePrice <= activePosition.liqPrice) : (livePrice >= activePosition.liqPrice);
+
+          if (isLiqHit || pnlPct <= -100) {
+            closeTrade('LIQUIDATED', '⚠️ تمت تصفية الصفقة (Liquidation)');
+            return;
+          } else if (isTpHit) {
+            closeTrade('TP_HIT', '🟢 تم تحقيق الهدف (TP)');
+            return;
+          } else if (isSlHit) {
+            closeTrade('SL_HIT', '🔴 تم ضرب وقف الخسارة (SL)');
+            return;
+          }
+
+          saveState();
+          renderActivePosition();
+        } catch (e) {}
+      }, 3000);
+    }
+
+    function stopPolling() {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    }
+
+    // Render Active Position
+    function renderActivePosition() {
+      const container = document.getElementById('activePositionContainer');
+      document.getElementById('headerBalance').innerText = `$${demoBalance.toFixed(2)}`;
+
+      if (!activePosition) {
+        container.innerHTML = `
+          <div class="bg-[#0c121e] border border-zinc-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-bold text-emerald-400">
+                20x
+              </div>
+              <div>
+                <span class="font-bold text-white text-sm block">محرك محاكاة الفيوتشر جاهز</span>
+                <span class="text-zinc-400 text-[11px]">اختر عملة من الأسفل واضغط زر [⚡ دخول صفقة فيوتشر] لبدء المحاكاة الحية.</span>
+              </div>
+            </div>
+            <div class="font-mono-num text-xs text-zinc-400">
+              الهامش: <b class="text-emerald-400">$10.00</b> · العقد: <b class="text-zinc-200">$200.00</b>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const isLong = activePosition.direction === 'LONG';
+      const isWin = activePosition.pnlPercent >= 0;
+
+      container.innerHTML = `
+        <div class="bg-[#0c121e] border ${isWin ? 'border-emerald-500/50 shadow-emerald-950/30' : 'border-rose-500/50 shadow-rose-950/30'} rounded-xl p-4 space-y-3 font-mono-num shadow-lg">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+            <div class="flex items-center gap-3">
+              <span class="px-2.5 py-1 rounded text-xs font-black ${isLong ? 'bg-emerald-500 text-black' : 'bg-rose-500 text-white'}">
+                ${activePosition.direction} 20x
+              </span>
+              <span class="text-lg font-bold text-white">${activePosition.symbol}</span>
+              <span class="text-xs text-zinc-400">الهامش: <b class="text-zinc-200">$10.00</b> (العقد: $200.00)</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-zinc-400 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>تحديث لحظي كل 3 ثوانٍ</span>
+              </span>
+              <!-- Red Close Button -->
+              <button onclick="closeTrade('MANUAL_CLOSE', '⚪ إغلاق يدوي')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md shadow-rose-600/30 border border-rose-400 cursor-pointer">
+                🔴 إغلاق الصفقة الآن
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+            <div class="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800">
+              <span class="text-zinc-500 block text-[10px]">سعر الدخول</span>
+              <span class="font-bold text-white text-sm">$${activePosition.entryPrice.toFixed(4)}</span>
+            </div>
+            <div class="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800">
+              <span class="text-zinc-500 block text-[10px]">السعر اللحظي</span>
+              <span class="font-bold text-sm ${isWin ? 'text-emerald-400' : 'text-rose-400'}">$${activePosition.currentPrice.toFixed(4)}</span>
+            </div>
+            <div class="p-2.5 rounded-lg border ${isWin ? 'bg-emerald-950/40 border-emerald-500/40' : 'bg-rose-950/40 border-rose-500/40'}">
+              <span class="text-zinc-400 block text-[10px]">الربح / الخسارة ($)</span>
+              <span class="font-black text-sm ${isWin ? 'text-emerald-400' : 'text-rose-400'}">${isWin ? '+' : ''}$${activePosition.pnlDollar.toFixed(2)} USD</span>
+            </div>
+            <div class="p-2.5 rounded-lg border ${isWin ? 'bg-emerald-950/40 border-emerald-500/40' : 'bg-rose-950/40 border-rose-500/40'}">
+              <span class="text-zinc-400 block text-[10px]">العائد على الهامش (ROE %)</span>
+              <span class="font-black text-sm ${isWin ? 'text-emerald-400' : 'text-rose-400'}">${isWin ? '+' : ''}${activePosition.pnlPercent.toFixed(2)}%</span>
+            </div>
+            <div class="bg-zinc-950 p-2.5 rounded-lg border border-emerald-500/20">
+              <span class="text-emerald-400 block text-[10px]">الهدف (TP)</span>
+              <span class="font-bold text-emerald-300 text-sm">$${activePosition.tp.toFixed(4)}</span>
+            </div>
+            <div class="bg-zinc-950 p-2.5 rounded-lg border border-rose-500/20">
+              <span class="text-rose-400 block text-[10px]">الوقف / التصفية</span>
+              <span class="font-bold text-rose-300 text-xs">SL: $${activePosition.sl.toFixed(4)}</span>
+              <div class="text-[10px] text-zinc-500">Liq: $${activePosition.liqPrice.toFixed(4)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Render Minimal History Table
+    function renderHistory() {
+      const container = document.getElementById('historyTableContainer');
+      if (tradeHistory.length === 0) {
+        container.innerHTML = `
+          <div class="p-6 text-center text-zinc-500">
+            لا توجد صفقات منفذة بعد في السجل.
+          </div>
+        `;
+        return;
+      }
+
+      const totalPnL = tradeHistory.reduce((a, b) => a + b.pnlDollar, 0);
+
+      container.innerHTML = `
+        <div class="p-3 border-b border-zinc-800 flex items-center justify-between font-mono-num">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-white text-sm">سجل الصفقات المكتملة (${tradeHistory.length})</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-zinc-400">صافي الأرباح: <b class="${totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${totalPnL >= 0 ? '+' : ''}$${totalPnL.toFixed(2)} USD</b></span>
+            <button onclick="clearHistory()" class="text-zinc-500 hover:text-rose-400 text-[11px]">مسح</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-start font-mono-num text-[11px]">
+            <thead class="bg-zinc-950 text-zinc-400 border-b border-zinc-800">
+              <tr>
+                <th class="py-2 px-3 text-start">العملة</th>
+                <th class="py-2 px-3 text-start">النوع</th>
+                <th class="py-2 px-3 text-start">الهامش</th>
+                <th class="py-2 px-3 text-start">سعر الدخول</th>
+                <th class="py-2 px-3 text-start">سعر الإغلاق</th>
+                <th class="py-2 px-3 text-start">الربح ($)</th>
+                <th class="py-2 px-3 text-start">العائد (%)</th>
+                <th class="py-2 px-3 text-end font-sans">النتيجة</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-800/60">
+              ${tradeHistory.map(t => {
+                const win = t.pnlDollar > 0;
+                return `
+                  <tr class="hover:bg-zinc-800/30">
+                    <td class="py-2 px-3 font-bold text-white">${t.symbol}</td>
+                    <td class="py-2 px-3 ${t.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}">${t.direction} 20x</td>
+                    <td class="py-2 px-3 text-zinc-300">$${t.margin.toFixed(2)}</td>
+                    <td class="py-2 px-3 text-zinc-300">$${t.entryPrice.toFixed(4)}</td>
+                    <td class="py-2 px-3 text-zinc-300">$${t.exitPrice.toFixed(4)}</td>
+                    <td class="py-2 px-3 font-bold ${win ? 'text-emerald-400' : 'text-rose-400'}">${win ? '+' : ''}$${t.pnlDollar.toFixed(2)}</td>
+                    <td class="py-2 px-3 font-bold ${win ? 'text-emerald-400' : 'text-rose-400'}">${win ? '+' : ''}${t.pnlPercent.toFixed(2)}%</td>
+                    <td class="py-2 px-3 text-end font-sans text-zinc-200">${t.outcomeTextAr}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function clearHistory() {
+      tradeHistory = [];
+      saveState();
+      renderHistory();
+    }
+
+    function saveState() {
+      localStorage.setItem('paper_balance', demoBalance.toString());
+      localStorage.setItem('paper_active_position', JSON.stringify(activePosition));
+      localStorage.setItem('paper_history', JSON.stringify(tradeHistory));
+    }
+
+    // Init
+    renderActivePosition();
+    renderHistory();
+    scanUniverse();
+    if (activePosition) startPolling();
+  </script>
+</body>
+</html>

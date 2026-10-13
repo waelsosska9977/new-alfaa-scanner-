@@ -11,7 +11,8 @@ import {
   Languages, 
   Code2, 
   SlidersHorizontal,
-  Bot
+  Bot,
+  Download
 } from 'lucide-react';
 import { playSignalAlertSound } from '../utils/audioAlert';
 
@@ -224,6 +225,17 @@ export const Header: React.FC<Props> = ({
               <Code2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{isArabic ? 'كود vectorbt' : 'Export vectorbt'}</span>
             </button>
+
+            {/* Standalone HTML File Button */}
+            <a
+              href="/standalone_futures_simulator.html"
+              download="standalone_futures_simulator.html"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-colors"
+              title="تحميل كود الصفحة المستقلة بالكامل كملف HTML واحد"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">{isArabic ? 'ملف HTML' : 'HTML App'}</span>
+            </a>
 
             {/* Language Switch */}
             <button

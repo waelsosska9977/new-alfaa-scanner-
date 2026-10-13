@@ -22,6 +22,9 @@ import { SetupCard } from './components/SetupCard';
 import { DiagnosticsTable } from './components/DiagnosticsTable';
 import { BacktestModal } from './components/BacktestModal';
 import { TelegramModal } from './components/TelegramModal';
+import { ActivePositionPanel } from './components/ActivePositionPanel';
+import { TradeHistoryTable } from './components/TradeHistoryTable';
+import { ActivePosition, ClosedTrade, TradeOutcome } from './types/paperTrading';
 import { 
   ShieldAlert, 
   Search, 
@@ -80,6 +83,143 @@ export default function App() {
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [isBacktesting, setIsBacktesting] = useState<boolean>(false);
   const [modalTab, setModalTab] = useState<'results' | 'python'>('results');
+
+  // 20x Futures Paper Trading Simulation State
+  const [activePosition, setActivePosition] = useState<ActivePosition | null>(() => {
+    try {
+      const saved = localStorage.getItem('strict_alpha_active_position');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>(() => {
+    try {
+      const saved = localStorage.getItem('strict_alpha_closed_trades');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [demoBalance, setDemoBalance] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('strict_alpha_demo_balance');
+      return saved ? parseFloat(saved) : 100.0;
+    } catch {
+      return 100.0;
+    }
+  });
+
+  const [lastPollTimestamp, setLastPollTimestamp] = useState<number>(Date.now());
+
+  useEffect(() => {
+    try {
+      if (activePosition) {
+        localStorage.setItem('strict_alpha_active_position', JSON.stringify(activePosition));
+      } else {
+        localStorage.removeItem('strict_alpha_active_position');
+      }
+    } catch {}
+  }, [activePosition]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('strict_alpha_closed_trades', JSON.stringify(closedTrades));
+    } catch {}
+  }, [closedTrades]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('strict_alpha_demo_balance', demoBalance.toString());
+    } catch {}
+  }, [demoBalance]);
+
+  // 3-second Live Polling for 20x Futures Position
+  useEffect(() => {
+    if (!activePosition) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${activePosition.symbol}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const livePrice = parseFloat(data.price);
+        if (!livePrice || isNaN(livePrice)) return;
+
+        const isLong = activePosition.direction === 'LONG';
+        const rawDiff = isLong ? (livePrice - activePosition.entryPrice) : (activePosition.entryPrice - livePrice);
+        const pnlPercent = (rawDiff / activePosition.entryPrice) * 100 * activePosition.leverage;
+        const pnlDollar = activePosition.margin * (pnlPercent / 100);
+
+        setLastPollTimestamp(Date.now());
+
+        // Check Exit Triggers
+        const isTpHit = isLong ? (livePrice >= activePosition.takeProfitPrice) : (livePrice <= activePosition.takeProfitPrice);
+        const isSlHit = isLong ? (livePrice <= activePosition.stopLossPrice) : (livePrice >= activePosition.stopLossPrice);
+        const isLiqHit = isLong ? (livePrice <= activePosition.liquidationPrice) : (livePrice >= activePosition.liquidationPrice);
+
+        let outcome: TradeOutcome | null = null;
+        let outcomeTextAr = '';
+
+        if (isLiqHit || pnlPercent <= -100) {
+          outcome = 'LIQUIDATED';
+          outcomeTextAr = '⚠️ تمت تصفية الصفقة (Liquidation)';
+          if (soundEnabled) playSignalAlertSound('SHORT');
+        } else if (isTpHit) {
+          outcome = 'TP_HIT';
+          outcomeTextAr = '🟢 تم تحقيق الهدف (TP)';
+          if (soundEnabled) playSignalAlertSound('LONG');
+        } else if (isSlHit) {
+          outcome = 'SL_HIT';
+          outcomeTextAr = '🔴 تم ضرب وقف الخسارة (SL)';
+          if (soundEnabled) playSignalAlertSound('SHORT');
+        }
+
+        if (outcome) {
+          const finalPnlDollar = outcome === 'LIQUIDATED' ? -activePosition.margin : Number(pnlDollar.toFixed(2));
+          const finalPnlPercent = outcome === 'LIQUIDATED' ? -100 : Number(pnlPercent.toFixed(2));
+
+          const closed: ClosedTrade = {
+            id: activePosition.id,
+            symbol: activePosition.symbol,
+            direction: activePosition.direction,
+            entryPrice: activePosition.entryPrice,
+            exitPrice: livePrice,
+            margin: activePosition.margin,
+            leverage: activePosition.leverage,
+            notionalSize: activePosition.notionalSize,
+            pnlDollar: finalPnlDollar,
+            pnlPercent: finalPnlPercent,
+            outcome,
+            outcomeTextAr,
+            openedAt: activePosition.openedAt,
+            closedAt: Date.now()
+          };
+
+          setClosedTrades((prev) => [closed, ...prev]);
+          setDemoBalance((prev) => Number((prev + activePosition.margin + finalPnlDollar).toFixed(2)));
+          setActivePosition(null);
+        } else {
+          setActivePosition((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              currentPrice: livePrice,
+              pnlPercent: Number(pnlPercent.toFixed(2)),
+              pnlDollar: Number(pnlDollar.toFixed(2)),
+              lastUpdatedAt: Date.now()
+            };
+          });
+        }
+      } catch (err) {
+        console.debug('Polling live price error', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [activePosition, soundEnabled]);
 
   // Scanner Core Execution
   const runScanner = useCallback(async () => {
@@ -238,6 +378,80 @@ export default function App() {
     }
   };
 
+  // Enter 20x Futures Paper Trade Handler ($10 margin, 20x leverage)
+  const handleEnterPaperTrade = (setup: ConfirmedSetup) => {
+    if (activePosition) {
+      handleClosePosition();
+    }
+
+    const margin = 10.0;
+    const leverage = 20;
+    const notionalSize = 200.0;
+    const isLong = setup.direction === 'LONG';
+    const entryPrice = setup.livePrice;
+
+    // ~5% adverse move for liquidation
+    const liquidationPrice = isLong ? entryPrice * 0.95 : entryPrice * 1.05;
+    const takeProfitPrice = setup.target1.price;
+    const stopLossPrice = setup.stopLoss.price;
+
+    const newPos: ActivePosition = {
+      id: `pos-${Date.now()}`,
+      symbol: setup.symbol,
+      baseAsset: setup.baseAsset,
+      direction: setup.direction,
+      entryPrice,
+      currentPrice: entryPrice,
+      margin,
+      leverage,
+      notionalSize,
+      liquidationPrice: Number(liquidationPrice.toFixed(6)),
+      takeProfitPrice: Number(takeProfitPrice.toFixed(6)),
+      stopLossPrice: Number(stopLossPrice.toFixed(6)),
+      pnlPercent: 0,
+      pnlDollar: 0,
+      openedAt: Date.now(),
+      lastUpdatedAt: Date.now()
+    };
+
+    setDemoBalance((prev) => Math.max(0, Number((prev - margin).toFixed(2))));
+    setActivePosition(newPos);
+    if (soundEnabled) playSignalAlertSound(setup.direction);
+  };
+
+  // Manual Close 20x Futures Position Handler
+  const handleClosePosition = () => {
+    if (!activePosition) return;
+
+    const finalPnlDollar = activePosition.pnlDollar;
+    const finalPnlPercent = activePosition.pnlPercent;
+
+    const closed: ClosedTrade = {
+      id: activePosition.id,
+      symbol: activePosition.symbol,
+      direction: activePosition.direction,
+      entryPrice: activePosition.entryPrice,
+      exitPrice: activePosition.currentPrice,
+      margin: activePosition.margin,
+      leverage: activePosition.leverage,
+      notionalSize: activePosition.notionalSize,
+      pnlDollar: finalPnlDollar,
+      pnlPercent: finalPnlPercent,
+      outcome: 'MANUAL_CLOSE',
+      outcomeTextAr: '⚪ إغلاق يدوي',
+      openedAt: activePosition.openedAt,
+      closedAt: Date.now()
+    };
+
+    setClosedTrades((prev) => [closed, ...prev]);
+    setDemoBalance((prev) => Number((prev + activePosition.margin + finalPnlDollar).toFixed(2)));
+    setActivePosition(null);
+  };
+
+  const handleClearTradeHistory = () => {
+    setClosedTrades([]);
+  };
+
   // Filter confirmed setups by search and direction
   const filteredConfirmed = confirmedSetups.filter((s) => {
     const matchesSearch = s.symbol.toLowerCase().includes(searchQuery.toLowerCase());
@@ -328,6 +542,15 @@ export default function App() {
           isArabic={isArabic}
           newAlertSymbol={newAlertSymbol}
           onOpenTelegram={() => setIsTelegramModalOpen(true)}
+        />
+
+        {/* 20x Futures Paper Trading Active Engine Panel */}
+        <ActivePositionPanel
+          position={activePosition}
+          balance={demoBalance}
+          isArabic={isArabic}
+          onClosePosition={handleClosePosition}
+          lastPollTimestamp={lastPollTimestamp}
         />
 
         {/* Search, Direction Filters & Custom Symbol Ingestion */}
@@ -456,6 +679,7 @@ export default function App() {
                   isArabic={isArabic}
                   onOpenBacktest={(s) => handleOpenBacktest(s, 'results')}
                   onOpenScript={(s) => handleOpenBacktest(s, 'python')}
+                  onEnterPaperTrade={handleEnterPaperTrade}
                 />
               ))}
             </div>
@@ -498,6 +722,13 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* 20x Futures Trade History Table */}
+        <TradeHistoryTable
+          trades={closedTrades}
+          isArabic={isArabic}
+          onClearHistory={handleClearTradeHistory}
+        />
 
         {/* Diagnostics Table (Shown when Confirmed Only is toggled OFF, or for rejected coins inspection) */}
         {!confirmedOnly && (
